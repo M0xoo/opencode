@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { type Extension, isAsync, StreamingResponse } from "../extension.js"
+import { type Extension, isAsync, isConstructible, StreamingResponse } from "../extension.js"
 import { BufferObj } from "../stdlib/buffer.js"
 import { hooked } from "../tool-runtime.js"
 import { errorMessage, errorType } from "./errors.js"
@@ -59,10 +59,14 @@ export const extensionGlobals = <R>(
   const byName = new Map(extensions.map((extension) => [extension.name, extension]))
   // The program functions wrapping functions inside values a hooked extension returned, by where they came from.
   const origins = new WeakMap<object, HostOrigin>()
+  // The host function behind each program function made from one, so passing it back hands the host its own function.
+  const hosted = new WeakMap<object, Function>()
 
   const toHost = (value: Value, label: string, depth = 0, seen = new Set<object>()): unknown => {
     if (depth > MAX_VALUE_DEPTH) throw typeError(`${label} exceeds the maximum value depth of ${MAX_VALUE_DEPTH}.`)
     if (isPrimitive(value)) return value
+    const host = value instanceof Obj ? hosted.get(value) : undefined
+    if (host !== undefined) return host
     if (!(value instanceof Obj) || isOpaque(value)) {
       throw typeError(`${label} contains ${describeValue(value)}, which cannot be passed to an extension.`)
     }
@@ -246,21 +250,24 @@ export const extensionGlobals = <R>(
     const length: unknown = value.length
     const extension = within?.extension.name
     const root = within?.root
+    const call = (values: Array<Value>, site: AstNode | undefined) => {
+      const args = values.map((item, index) => toHost(item, `Argument ${index + 1} to ${label}`))
+      const invocation =
+        within !== undefined && root === undefined ? { extension: extension!, name: label, args } : undefined
+      // A denied call fails the way the global would: an async global rejects its promise, a sync one throws.
+      if (isAsync(value)) {
+        return pending(ctx, { stage: "run", label, extension, invocation, host: value, args, threw: false }, site)
+      }
+      return new Push("extension call", [value, args, label, invocation, extension])
+    }
     const wrapped = native(builtins, {
       runtime: "extension",
       name: typeof name === "string" ? name : "",
       length: typeof length === "number" && Number.isSafeInteger(length) && length >= 0 ? length : 0,
-      call: (_, values, site) => {
-        const args = values.map((item, index) => toHost(item, `Argument ${index + 1} to ${label}`))
-        const invocation =
-          within !== undefined && root === undefined ? { extension: extension!, name: label, args } : undefined
-        // A denied call fails the way the global would: an async global rejects its promise, a sync one throws.
-        if (isAsync(value)) {
-          return pending(ctx, { stage: "run", label, extension, invocation, host: value, args, threw: false }, site)
-        }
-        return new Push("extension call", [value, args, label, invocation, extension])
-      },
+      call: (_, values, site) => call(values, site),
+      ...(isConstructible(value) ? { construct: (values, _, site) => call(values, site) } : {}),
     })
+    hosted.set(wrapped, value)
     if (root !== undefined && within!.path !== undefined) {
       origins.set(wrapped, { extension: extension!, root, path: within!.path, label })
     }
@@ -301,6 +308,7 @@ export const extensionGlobals = <R>(
       // The restored function keeps its own properties; only what calling it does comes from the new one.
       Object.assign(target, { tag: made.tag, call: made.call, construct: made.construct, callback: made.callback })
       origins.set(target, origin)
+      hosted.set(target, host)
     },
   }
 
