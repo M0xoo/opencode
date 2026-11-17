@@ -904,6 +904,13 @@ fn host_value(v: &HostValue) -> J {
         ]),
         HostValue::Set(items) => json!(["set", items.iter().map(host_value).collect::<Vec<_>>()]),
         HostValue::Function(f) => json!(["f", f.name(), f.length]),
+        HostValue::Date(t) => json!(["date", num(*t)]),
+        HostValue::RegExp { source, flags } => json!(["re", source, flags]),
+        HostValue::Url(href) => json!(["url", href]),
+        HostValue::SearchParams(pairs) => json!(["sp", pairs]),
+        HostValue::Headers(entries) => json!(["hd", entries]),
+        HostValue::Bytes(b) => json!(["u8", bytes_hex(b)]),
+        HostValue::Buffer(b) => json!(["buf", bytes_hex(b)]),
         HostValue::Error(e) => json!([
             "e",
             e.name,
@@ -955,6 +962,16 @@ fn host_value_from(j: &J) -> R<HostValue> {
             Some("f") => HostValue::Function(host::lost_function(
                 a.get(1).and_then(J::as_str).unwrap_or(""),
             )),
+            Some("date") => HostValue::Date(unnum(a.get(1).unwrap_or(&J::Null))?),
+            Some("re") => HostValue::RegExp {
+                source: string(at(j, 1)?)?,
+                flags: string(at(j, 2)?)?,
+            },
+            Some("url") => HostValue::Url(string(at(j, 1)?)?),
+            Some("sp") => HostValue::SearchParams(pairs(at(j, 1)?)?),
+            Some("hd") => HostValue::Headers(pairs(at(j, 1)?)?),
+            Some("u8") => HostValue::Bytes(hex_bytes(&string(at(j, 1)?)?)?),
+            Some("buf") => HostValue::Buffer(hex_bytes(&string(at(j, 1)?)?)?),
             Some("e") => HostValue::Error(Box::new(HostError {
                 name: string(at(j, 1)?)?,
                 message: string(at(j, 2)?)?,
