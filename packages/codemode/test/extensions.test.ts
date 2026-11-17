@@ -125,6 +125,12 @@ describe("extension functions", () => {
     expect((await failure(`copy("b", { text: file })`, target)).message).toContain(
       "Argument 2 to copy contains a function",
     )
+    const gated = CodeMode.make({
+      extensions: [Extension.make({ name: "gated", globals: { fs: { rm: () => undefined }, take: () => undefined } })],
+    })
+    for (const code of [`take(fs.rm)`, `take({ a: fs.rm })`, `take(fs)`]) {
+      expect((await failure(code, gated)).message).toContain("Argument 1 to take contains a function")
+    }
   })
 
   test("a constructible global works with new and returns what the host function returns", async () => {
