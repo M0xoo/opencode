@@ -59,7 +59,8 @@ export const extensionGlobals = <R>(
   const byName = new Map(extensions.map((extension) => [extension.name, extension]))
   // The program functions wrapping functions inside values a hooked extension returned, by where they came from.
   const origins = new WeakMap<object, HostOrigin>()
-  // The host function behind each program function made from one, so passing it back hands the host its own function.
+  // The host function behind each function inside a result, so passing it back hands the host its own function. A
+  // global's functions are left out: the hooks run when they are called, and the host could call one without them.
   const hosted = new WeakMap<object, Function>()
 
   const toHost = (value: Value, label: string, depth = 0, seen = new Set<object>()): unknown => {
@@ -267,7 +268,7 @@ export const extensionGlobals = <R>(
       call: (_, values, site) => call(values, site),
       ...(isConstructible(value) ? { construct: (values, _, site) => call(values, site) } : {}),
     })
-    hosted.set(wrapped, value)
+    if (within === undefined || root !== undefined) hosted.set(wrapped, value)
     if (root !== undefined && within!.path !== undefined) {
       origins.set(wrapped, { extension: extension!, root, path: within!.path, label })
     }

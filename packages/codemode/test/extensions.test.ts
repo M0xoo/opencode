@@ -122,6 +122,9 @@ describe("extension functions", () => {
     expect((await failure(`copy("b", { text: async () => "x" })`, target)).message).toContain(
       "Argument 2 to copy contains a function",
     )
+    expect((await failure(`copy("b", { text: file })`, target)).message).toContain(
+      "Argument 2 to copy contains a function",
+    )
   })
 
   test("a constructible global works with new and returns what the host function returns", async () => {
